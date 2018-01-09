@@ -1,0 +1,71 @@
+version: '3'
+volumes:
+    object-vol: # Volume to host s3 service data locally.
+        driver: 'local'
+    data-vol: # Volume to host db service data locally.
+        driver: 'local'
+services: 
+    s3:
+        image: minio/minio
+        ports:
+        - "9000:9000"
+        volumes:
+        - object-vol:/export
+        environment:
+        - "MINIO_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE"
+        - "MINIO_SECRET_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        command: server /export
+        container_name: storage-cont
+    db:
+        image: postgres:latest
+        ports:
+            - "5432:5432" # host:container
+        volumes:
+        - data-vol:/var/lib/postgresql/data
+        environment:
+            - POSTGRES_USER=postgres
+            - POSTGRES_DBNAME=sample    
+            - POSTGRES_PASSWORD=mypass
+            - POSTGRES_PORT=5432
+        container_name: db-cont
+
+    redis:
+        image: redis:alpine
+        ports: 
+            - "6379"
+        container_name: kvs-cont
+
+    proxy:
+        image: nginx:latest
+        ports:
+            - "80:80" # host:container
+            - "443:443"
+        volumes:
+            - ./nginx.conf:/etc/nginx/nginx.conf:ro
+            # connect host's ./nginx.conf with container's nginx.conf
+            # :ro == read only perms in container
+        links:
+            - go:app 
+        depends_on:
+            - go
+        container_name: proxy-cont
+
+    go:
+        build: .
+        links:
+            - db:db 
+            - s3:s3
+            - redis:redis
+            # [other container]:[alias in this container]
+            # this will create environment variables in the go container
+            # with ip and port info for the postgres container
+            # also creates entries in /etc/hosts with ip info
+        depends_on:
+            - db
+            - s3
+            - redis
+        ports:
+            - "8080:8080" # host:container
+        volumes:
+            - .:/go/src/github.com/monstar-lab/fr-circle-api
+        container_name: go-cont
